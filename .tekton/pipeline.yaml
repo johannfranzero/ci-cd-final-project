@@ -1,0 +1,90 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: ci-cd-pipeline
+spec:
+  workspaces:
+    - name: output
+  params:
+    - name: git-url
+      type: string
+      description: The Git repository URL
+    - name: git-revision
+      type: string
+      description: The Git revision to checkout
+      default: "main"
+    - name: app-name
+      type: string
+      description: Application name for deployment
+    - name: build-image
+      type: string
+      description: Name for the built container image
+  tasks:
+    - name: cleanup
+      taskRef:
+        name: cleanup
+      workspaces:
+        - name: source
+          workspace: output
+
+    - name: git-clone
+      taskRef:
+        name: git-clone
+        kind: ClusterTask  # FIXED: Changed from Task to ClusterTask
+      workspaces:
+        - name: output
+          workspace: output
+      params:
+        - name: URL  # FIXED: Changed from 'url' to 'URL'
+          value: "$(params.git-url)"
+        - name: REVISION  # FIXED: Changed from 'revision' to 'REVISION'
+          value: "$(params.git-revision)"
+        - name: deleteExisting
+          value: "true"
+      runAfter: ["cleanup"]
+
+    - name: flake8-linting
+      taskRef:
+        name: flake8-custom-fixed  # FIXED: Changed from 'flake8' to 'flake8-custom-fixed'
+        kind: Task
+      workspaces:
+        - name: source
+          workspace: output
+      runAfter: ["git-clone"]
+
+    - name: nose-tests
+      taskRef:
+        name: nose
+      workspaces:
+        - name: source
+          workspace: output
+      params:
+        - name: args
+          value: "-v"
+      runAfter: ["flake8-linting"]
+
+    - name: buildah-task
+      taskRef:
+        kind: ClusterTask
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: output
+      params:
+        - name: IMAGE
+          value: "$(params.build-image)"
+      runAfter: ["nose-tests"]
+
+    - name: deploy-application
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+      workspaces:
+        - name: source
+          workspace: output
+      params:
+        - name: SCRIPT
+          value: |
+            oc create deployment $(params.app-name) --image=$(params.build-image) --dry-run=client -o yaml | oc apply -f -
+            oc expose deployment/$(params.app-name) --port=8080 || true
+      runAfter: ["buildah-task"]

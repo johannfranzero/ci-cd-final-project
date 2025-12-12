@@ -1,0 +1,100 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"tekton.dev/v1beta1","kind":"Pipeline","metadata":{"annotations":{},"name":"ci-cd-pipeline","namespace":"sn-labs-u423005320"},"spec":{"params":[{"description":"The Git repository URL","name":"git-url","type":"string"},{"default":"main","description":"The Git revision to checkout","name":"git-revision","type":"string"},{"description":"Application name for deployment","name":"app-name","type":"string"},{"description":"Name for the built container image","name":"build-image","type":"string"}],"tasks":[{"name":"cleanup","taskRef":{"name":"cleanup"},"workspaces":[{"name":"source","workspace":"output"}]},{"name":"git-clone","params":[{"name":"url","value":"$(params.git-url)"},{"name":"revision","value":"$(params.git-revision)"},{"name":"deleteExisting","value":"true"}],"runAfter":["cleanup"],"taskRef":{"kind":"Task","name":"git-clone"},"workspaces":[{"name":"output","workspace":"output"}]},{"name":"flake8-linting","runAfter":["git-clone"],"taskRef":{"kind":"Task","name":"flake8"},"workspaces":[{"name":"source","workspace":"output"}]},{"name":"nose-tests","params":[{"name":"args","value":"-v"}],"runAfter":["flake8-linting"],"taskRef":{"name":"nose"},"workspaces":[{"name":"source","workspace":"output"}]},{"name":"buildah-task","params":[{"name":"IMAGE","value":"$(params.build-image)"}],"runAfter":["nose-tests"],"taskRef":{"kind":"ClusterTask","name":"buildah"},"workspaces":[{"name":"source","workspace":"output"}]},{"name":"deploy-application","params":[{"name":"SCRIPT","value":"oc create deployment $(params.app-name) --image=$(params.build-image) --dry-run=client -o yaml | oc apply -f -\noc expose deployment/$(params.app-name) --port=8080 || true\n"}],"runAfter":["buildah-task"],"taskRef":{"kind":"ClusterTask","name":"openshift-client"},"workspaces":[{"name":"source","workspace":"output"}]}],"workspaces":[{"name":"output"}]}}
+  creationTimestamp: "2025-12-12T09:29:53Z"
+  generation: 1
+  name: ci-cd-pipeline
+  namespace: sn-labs-u423005320
+  resourceVersion: "2532310287"
+  uid: 26556472-be4d-49a2-826b-b8f86ac3fb97
+spec:
+  params:
+  - description: The Git repository URL
+    name: git-url
+    type: string
+  - default: main
+    description: The Git revision to checkout
+    name: git-revision
+    type: string
+  - description: Application name for deployment
+    name: app-name
+    type: string
+  - description: Name for the built container image
+    name: build-image
+    type: string
+  tasks:
+  - name: cleanup
+    taskRef:
+      kind: Task
+      name: cleanup
+    workspaces:
+    - name: source
+      workspace: output
+  - name: git-clone
+    params:
+    - name: url
+      value: $(params.git-url)
+    - name: revision
+      value: $(params.git-revision)
+    - name: deleteExisting
+      value: "true"
+    runAfter:
+    - cleanup
+    taskRef:
+      kind: Task
+      name: git-clone
+    workspaces:
+    - name: output
+      workspace: output
+  - name: flake8-linting
+    runAfter:
+    - git-clone
+    taskRef:
+      kind: Task
+      name: flake8
+    workspaces:
+    - name: source
+      workspace: output
+  - name: nose-tests
+    params:
+    - name: args
+      value: -v
+    runAfter:
+    - flake8-linting
+    taskRef:
+      kind: Task
+      name: nose
+    workspaces:
+    - name: source
+      workspace: output
+  - name: buildah-task
+    params:
+    - name: IMAGE
+      value: $(params.build-image)
+    runAfter:
+    - nose-tests
+    taskRef:
+      kind: ClusterTask
+      name: buildah
+    workspaces:
+    - name: source
+      workspace: output
+  - name: deploy-application
+    params:
+    - name: SCRIPT
+      value: |
+        oc create deployment $(params.app-name) --image=$(params.build-image) --dry-run=client -o yaml | oc apply -f -
+        oc expose deployment/$(params.app-name) --port=8080 || true
+    runAfter:
+    - buildah-task
+    taskRef:
+      kind: ClusterTask
+      name: openshift-client
+    workspaces:
+    - name: source
+      workspace: output
+  workspaces:
+  - name: output
